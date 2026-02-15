@@ -1,13 +1,15 @@
-import sqlite3
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import uuid
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 
 app = FastAPI()
 
-# --- CONFIGURACIÓN DE CORS ---
+# --- CONFIGURACIÓN CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,110 +25,101 @@ class Listing(BaseModel):
     price: int
     lat: float
     lng: float
-    status: str = "AVAILABLE" # AVAILABLE, BOOKED, COMPLETED
+    status: str = "AVAILABLE"
 
-# --- BASE DE DATOS (SQLITE) ---
+# --- CONEXIÓN A BASE DE DATOS (POSTGRESQL) ---
+def get_db_connection():
+    # Render nos dará esta URL secreta en las variables de entorno
+    # Si estás en tu PC y quieres probar, tienes que poner la URL de Neon aquí manualmente o usar variables de entorno
+    conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
+    return conn
+
 def init_db():
     """Crea la tabla si no existe"""
-    conn = sqlite3.connect('fila_app.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS listings (
-            id TEXT PRIMARY KEY,
-            title TEXT,
-            price INTEGER,
-            lat REAL,
-            lng REAL,
-            status TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS listings (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                price INTEGER,
+                lat REAL,
+                lng REAL,
+                status TEXT
+            )
+        ''')
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ Base de datos inicializada correctamente")
+    except Exception as e:
+        print(f"Error iniciando DB: {e}")
 
-# Iniciamos la DB al arrancar el script
-init_db()
+# Iniciamos la DB al arrancar (solo si tenemos la URL)
+if os.environ.get("DATABASE_URL"):
+    init_db()
 
 # --- ENDPOINTS ---
 
 @app.get("/")
 def read_root():
-    return {"message": "Servidor con Base de Datos SQLite 🚀"}
+    return {"message": "Servidor con PostgreSQL 🚀"}
 
 @app.get("/listings", response_model=List[Listing])
 def get_listings():
-    conn = sqlite3.connect('fila_app.db')
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
     try:
+        conn = get_db_connection()
+        # RealDictCursor hace que los resultados sean diccionarios (igual que antes)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
         cursor.execute("SELECT * FROM listings")
         rows = cursor.fetchall()
         
-        # Imprimimos cuántas filas encontró para saber si lee la DB
-        print(f"DEBUG: Se encontraron {len(rows)} filas en la DB")
-
-        data = []
-        for row in rows:
-            # Convertimos manualmente para ver si falla alguna columna específica
-            item = {
-                "id": row["id"],
-                "title": row["title"],
-                "price": row["price"],
-                "lat": row["lat"],
-                "lng": row["lng"],
-                "status": row["status"]
-            }
-            data.append(item)
-            
-        return data
-
-    except Exception as e:
-        # AQUÍ VEREMOS EL ERROR REAL
-        print(f"🔥 ERROR CRÍTICO LEYENDO DB: {e}")
-        # Importante: Imprimimos el tipo de error para saber si es SQL o Pydantic
-        import traceback
-        traceback.print_exc()
-        return []
-        
-    finally:
+        cursor.close()
         conn.close()
+        return rows
+    except Exception as e:
+        print(f"Error DB: {e}")
+        return []
 
 @app.post("/listings")
 def create_listing(listing: Listing):
     listing.id = str(uuid.uuid4())
     
-    conn = sqlite3.connect('fila_app.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
+    # OJO: Postgres usa %s en lugar de ?
     cursor.execute(
-        "INSERT INTO listings (id, title, price, lat, lng, status) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO listings (id, title, price, lat, lng, status) VALUES (%s, %s, %s, %s, %s, %s)",
         (listing.id, listing.title, listing.price, listing.lat, listing.lng, listing.status)
     )
     
     conn.commit()
+    cursor.close()
     conn.close()
     
-    return {"status": "success", "message": "Guardado en DB", "id": listing.id}
+    return {"status": "success", "message": "Guardado en Postgres", "id": listing.id}
 
 @app.post("/book/{listing_id}")
 def book_listing(listing_id: str):
-    conn = sqlite3.connect('fila_app.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    # 1. Verificar estado actual
-    cursor.execute("SELECT status FROM listings WHERE id = ?", (listing_id,))
+    cursor.execute("SELECT status FROM listings WHERE id = %s", (listing_id,))
     result = cursor.fetchone()
     
     if not result:
         conn.close()
         return {"status": "error", "message": "Oferta no encontrada"}
     
+    # En psycopg2, result es una tupla, accedemos con [0]
     if result[0] != "AVAILABLE":
         conn.close()
-        return {"status": "error", "message": "Ya está reservado o completado"}
+        return {"status": "error", "message": "Ya está reservado"}
     
-    # 2. Actualizar a BOOKED
-    cursor.execute("UPDATE listings SET status = 'BOOKED' WHERE id = ?", (listing_id,))
+    cursor.execute("UPDATE listings SET status = 'BOOKED' WHERE id = %s", (listing_id,))
     conn.commit()
     conn.close()
     
@@ -134,10 +127,10 @@ def book_listing(listing_id: str):
 
 @app.post("/complete/{listing_id}")
 def complete_job(listing_id: str):
-    conn = sqlite3.connect('fila_app.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT status FROM listings WHERE id = ?", (listing_id,))
+    cursor.execute("SELECT status FROM listings WHERE id = %s", (listing_id,))
     result = cursor.fetchone()
     
     if not result:
@@ -146,29 +139,25 @@ def complete_job(listing_id: str):
         
     if result[0] == "COMPLETED":
         conn.close()
-        return {"status": "error", "message": "Este trabajo ya fue pagado anteriormente"}
+        return {"status": "error", "message": "Este trabajo ya fue pagado"}
 
-    # Actualizar a COMPLETED
-    cursor.execute("UPDATE listings SET status = 'COMPLETED' WHERE id = ?", (listing_id,))
+    cursor.execute("UPDATE listings SET status = 'COMPLETED' WHERE id = %s", (listing_id,))
     conn.commit()
     conn.close()
     
     return {"status": "success", "message": "¡Servicio validado! Pago liberado."}
 
-# --- ENDPOINT PARA BORRAR (DELETE) ---
 @app.delete("/listings/{listing_id}")
 def delete_listing(listing_id: str):
-    conn = sqlite3.connect('fila_app.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Verificamos si existe
-    cursor.execute("SELECT id FROM listings WHERE id = ?", (listing_id,))
+    cursor.execute("SELECT id FROM listings WHERE id = %s", (listing_id,))
     if not cursor.fetchone():
         conn.close()
         return {"status": "error", "message": "No existe esa oferta"}
 
-    # Borramos
-    cursor.execute("DELETE FROM listings WHERE id = ?", (listing_id,))
+    cursor.execute("DELETE FROM listings WHERE id = %s", (listing_id,))
     conn.commit()
     conn.close()
     
