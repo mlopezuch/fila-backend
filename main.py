@@ -18,6 +18,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class ListingCreate(BaseModel):
+    title: str
+    description: str
+    price: int
+    lat: float
+    lng: float
+    status: str = "AVAILABLE"
+    # --- NUEVOS CAMPOS ---
+    user_id: str
+    user_name: str
+    user_photo: str
+
 # --- MODELO DE DATOS ---
 class Listing(BaseModel):
     id: str = None
@@ -26,6 +38,11 @@ class Listing(BaseModel):
     lat: float
     lng: float
     status: str = "AVAILABLE"
+    # --- NUEVOS CAMPOS ---
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    user_photo: Optional[str] = None
+    created_at: datetime
 
 # --- CONEXIÓN A BASE DE DATOS (POSTGRESQL) ---
 def get_db_connection():
@@ -83,24 +100,40 @@ def get_listings():
         print(f"Error DB: {e}")
         return []
 
-@app.post("/listings")
-def create_listing(listing: Listing):
-    listing.id = str(uuid.uuid4())
-    
+@app.post("/listings", response_model=Listing, status_code=201)
+async def create_listing(listing: ListingCreate):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # OJO: Postgres usa %s en lugar de ?
-    cursor.execute(
-        "INSERT INTO listings (id, title, price, lat, lng, status) VALUES (%s, %s, %s, %s, %s, %s)",
-        (listing.id, listing.title, listing.price, listing.lat, listing.lng, listing.status)
+    # --- CONSULTA SQL ACTUALIZADA ---
+    query = """
+        INSERT INTO listings 
+        (title, description, price, lat, lng, status, user_id, user_name, user_photo)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id, title, description, price, lat, lng, status, user_id, user_name, user_photo, created_at;
+    """
+    
+    # Asegúrate de pasar los 9 valores en el orden correcto
+    values = (
+        listing.title, 
+        listing.description, 
+        listing.price, 
+        listing.lat, 
+        listing.lng, 
+        listing.status,
+        listing.user_id,    # Nuevo
+        listing.user_name,  # Nuevo
+        listing.user_photo  # Nuevo
     )
+    
+    cursor.execute(query, values)
+    new_listing = cursor.fetchone()
     
     conn.commit()
     cursor.close()
     conn.close()
     
-    return {"status": "success", "message": "Guardado en Postgres", "id": listing.id}
+    return new_listing
 
 @app.post("/book/{listing_id}")
 def book_listing(listing_id: str):
