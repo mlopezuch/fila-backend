@@ -100,40 +100,24 @@ def get_listings():
         print(f"Error DB: {e}")
         return []
 
-@app.post("/listings", response_model=Listing, status_code=201)
-async def create_listing(listing: ListingCreate):
+@app.post("/listings")
+def create_listing(listing: Listing):
+    listing.id = str(uuid.uuid4())
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # --- CONSULTA SQL ACTUALIZADA ---
-    query = """
-        INSERT INTO listings 
-        (title, description, price, lat, lng, status, user_id, user_name, user_photo)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id, title, description, price, lat, lng, status, user_id, user_name, user_photo, created_at;
-    """
-    
-    # Asegúrate de pasar los 9 valores en el orden correcto
-    values = (
-        listing.title, 
-        listing.description, 
-        listing.price, 
-        listing.lat, 
-        listing.lng, 
-        listing.status,
-        listing.user_id,    # Nuevo
-        listing.user_name,  # Nuevo
-        listing.user_photo  # Nuevo
+    # OJO: Postgres usa %s en lugar de ?
+    cursor.execute(
+        "INSERT INTO listings (id, title, price, lat, lng, status, user_id, user_name, user_photo) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (listing.id, listing.title, listing.price, listing.lat, listing.lng, listing.status, listing.user_id, listing.user_name, listing.user_photo, listing.created_at)
     )
-    
-    cursor.execute(query, values)
-    new_listing = cursor.fetchone()
     
     conn.commit()
     cursor.close()
     conn.close()
     
-    return new_listing
+    return {"status": "success", "message": "Guardado en Postgres", "id": listing.id}
 
 @app.post("/book/{listing_id}")
 def book_listing(listing_id: str):
