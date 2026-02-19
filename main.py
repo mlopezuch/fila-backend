@@ -5,7 +5,7 @@ import uuid
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional  # <--- 1. IMPORTANTE: TRAEMOS "Optional"
 
 app = FastAPI()
 
@@ -19,21 +19,20 @@ app.add_middleware(
 )
 
 # --- MODELO DE DATOS ---
-# Agregamos los 3 campos nuevos. 
-# Les ponemos "= None" para que si hay filas antiguas en la BD sin estos datos, el GET /listings no explote.
+# 2. SOLUCIÓN: Usamos Optional[str] para que acepte los valores nulos (NULL) de la BD sin explotar.
 class Listing(BaseModel):
-    id: str = None
+    id: Optional[str] = None
     title: str
     price: int
     lat: float
     lng: float
     status: str = "AVAILABLE"
-    user_id: str = None
-    user_name: str = None
-    user_photo: str = None
-    client_id: str = None  # <--- NUEVO: El que contrata
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    user_photo: Optional[str] = None
+    client_id: Optional[str] = None
 
-# NUEVO: Modelo para recibir quién está comprando
+# Modelo para cuando alguien contrata
 class BookRequest(BaseModel):
     client_id: str
 
@@ -47,8 +46,6 @@ def init_db():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Actualizamos la creación de la tabla para incluir los campos nuevos
-        # en caso de que se cree desde cero en el futuro.
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS listings (
                 id TEXT PRIMARY KEY,
@@ -59,18 +56,20 @@ def init_db():
                 status TEXT,
                 user_id TEXT,
                 user_name TEXT,
-                user_photo TEXT
+                user_photo TEXT,
+                client_id TEXT
             )
         ''')
         
-        # Opcional pero seguro: Intentamos agregar las columnas por si la tabla ya existe 
-        # y no las ejecutaste manualmente en Neon. Si ya existen, dará un pequeño error que ignoramos.
-        try:
-            cursor.execute('ALTER TABLE listings ADD COLUMN user_id TEXT;')
-            cursor.execute('ALTER TABLE listings ADD COLUMN user_name TEXT;')
-            cursor.execute('ALTER TABLE listings ADD COLUMN user_photo TEXT;')
-        except:
-            pass # Si la columna ya existe, fallará silenciosamente, lo cual está bien.
+        # Red de seguridad: intentamos crear las columnas si falta alguna
+        try: cursor.execute('ALTER TABLE listings ADD COLUMN user_id TEXT;')
+        except: pass
+        try: cursor.execute('ALTER TABLE listings ADD COLUMN user_name TEXT;')
+        except: pass
+        try: cursor.execute('ALTER TABLE listings ADD COLUMN user_photo TEXT;')
+        except: pass
+        try: cursor.execute('ALTER TABLE listings ADD COLUMN client_id TEXT;')
+        except: pass
             
         conn.commit()
         cursor.close()
@@ -79,7 +78,6 @@ def init_db():
     except Exception as e:
         print(f"Error iniciando DB: {e}")
 
-# Iniciamos la DB al arrancar
 if os.environ.get("DATABASE_URL"):
     init_db()
 
@@ -94,10 +92,8 @@ def get_listings():
     try:
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
         cursor.execute("SELECT * FROM listings")
         rows = cursor.fetchall()
-        
         cursor.close()
         conn.close()
         return rows
@@ -108,11 +104,9 @@ def get_listings():
 @app.post("/listings")
 def create_listing(listing: Listing):
     listing.id = str(uuid.uuid4())
-    
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Insertamos los 9 valores exactos que definimos en el modelo
     cursor.execute(
         """
         INSERT INTO listings (id, title, price, lat, lng, status, user_id, user_name, user_photo) 
@@ -128,7 +122,7 @@ def create_listing(listing: Listing):
     return {"status": "success", "message": "Guardado en Postgres", "id": listing.id}
 
 @app.post("/book/{listing_id}")
-def book_listing(listing_id: str, req: BookRequest): # <--- Ahora recibe el BookRequest
+def book_listing(listing_id: str, req: BookRequest):
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -143,7 +137,6 @@ def book_listing(listing_id: str, req: BookRequest): # <--- Ahora recibe el Book
         conn.close()
         return {"status": "error", "message": "Ya está reservado"}
     
-    # NUEVO: Ahora guardamos el status y el client_id al mismo tiempo
     cursor.execute(
         "UPDATE listings SET status = 'BOOKED', client_id = %s WHERE id = %s", 
         (req.client_id, listing_id)
@@ -190,5 +183,3 @@ def delete_listing(listing_id: str):
     conn.close()
     
     return {"status": "success", "message": "Oferta eliminada"}
-
-# Fin...
