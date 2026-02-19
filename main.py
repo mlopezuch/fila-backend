@@ -126,7 +126,8 @@ def book_listing(listing_id: str, req: BookRequest):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT status FROM listings WHERE id = %s", (listing_id,))
+    # 1. Ahora también pedimos el user_id (creador) a la base de datos
+    cursor.execute("SELECT status, user_id FROM listings WHERE id = %s", (listing_id,))
     result = cursor.fetchone()
     
     if not result:
@@ -136,7 +137,16 @@ def book_listing(listing_id: str, req: BookRequest):
     if result[0] != "AVAILABLE":
         conn.close()
         return {"status": "error", "message": "Ya está reservado"}
+        
+    # --- 🌟 EL CANDADO DE SEGURIDAD ---
+    # result[1] es el user_id del creador. req.client_id es quien intenta comprar.
+    if result[1] == req.client_id:
+        conn.close()
+        # Devolvemos un error 400 (Bad Request) si es la misma persona
+        from fastapi import Response
+        return Response(content='{"status": "error", "message": "No puedes contratar tu propia fila"}', status_code=400, media_type="application/json")
     
+    # Si todo está en orden, guardamos
     cursor.execute(
         "UPDATE listings SET status = 'BOOKED', client_id = %s WHERE id = %s", 
         (req.client_id, listing_id)
