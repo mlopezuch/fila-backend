@@ -18,18 +18,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ListingCreate(BaseModel):
-    title: str
-    description: str
-    price: int
-    lat: float
-    lng: float
-    status: str = "AVAILABLE"
-    # --- NUEVOS CAMPOS ---
-    user_id: str
-    user_name: str
-    user_photo: str
-
 # --- MODELO DE DATOS ---
 class Listing(BaseModel):
     id: str = None
@@ -38,11 +26,6 @@ class Listing(BaseModel):
     lat: float
     lng: float
     status: str = "AVAILABLE"
-    # --- NUEVOS CAMPOS ---
-    user_id: Optional[str] = None
-    user_name: Optional[str] = None
-    user_photo: Optional[str] = None
-    created_at: datetime
 
 # --- CONEXIÓN A BASE DE DATOS (POSTGRESQL) ---
 def get_db_connection():
@@ -109,8 +92,8 @@ def create_listing(listing: Listing):
     
     # OJO: Postgres usa %s en lugar de ?
     cursor.execute(
-        "INSERT INTO listings (id, title, price, lat, lng, status, user_id, user_name, user_photo) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (listing.id, listing.title, listing.price, listing.lat, listing.lng, listing.status, listing.user_id, listing.user_name, listing.user_photo, listing.created_at)
+        "INSERT INTO listings (id, title, price, lat, lng, status) VALUES (%s, %s, %s, %s, %s, %s)",
+        (listing.id, listing.title, listing.price, listing.lat, listing.lng, listing.status)
     )
     
     conn.commit()
