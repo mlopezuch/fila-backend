@@ -31,6 +31,11 @@ class Listing(BaseModel):
     user_id: str = None
     user_name: str = None
     user_photo: str = None
+    client_id: str = None  # <--- NUEVO: El que contrata
+
+# NUEVO: Modelo para recibir quién está comprando
+class BookRequest(BaseModel):
+    client_id: str
 
 # --- CONEXIÓN A BASE DE DATOS (POSTGRESQL) ---
 def get_db_connection():
@@ -123,7 +128,7 @@ def create_listing(listing: Listing):
     return {"status": "success", "message": "Guardado en Postgres", "id": listing.id}
 
 @app.post("/book/{listing_id}")
-def book_listing(listing_id: str):
+def book_listing(listing_id: str, req: BookRequest): # <--- Ahora recibe el BookRequest
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -138,7 +143,11 @@ def book_listing(listing_id: str):
         conn.close()
         return {"status": "error", "message": "Ya está reservado"}
     
-    cursor.execute("UPDATE listings SET status = 'BOOKED' WHERE id = %s", (listing_id,))
+    # NUEVO: Ahora guardamos el status y el client_id al mismo tiempo
+    cursor.execute(
+        "UPDATE listings SET status = 'BOOKED', client_id = %s WHERE id = %s", 
+        (req.client_id, listing_id)
+    )
     conn.commit()
     conn.close()
     
