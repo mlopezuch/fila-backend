@@ -181,3 +181,5 @@ def delete_listing(listing_id: str):
     conn.close()
     
     return {"status": "success", "message": "Oferta eliminada"}
+
+# Fin
