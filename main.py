@@ -58,6 +58,7 @@ class Listing(BaseModel):
     price: int
     lat: float
     lng: float
+    description: Optional[str] = None
     status: str = "AVAILABLE"
     user_id: Optional[str] = None
     user_name: Optional[str] = None
@@ -78,8 +79,16 @@ def init_db():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS listings (
                 id TEXT PRIMARY KEY,
-                title TEXT, price INTEGER, lat REAL, lng REAL, status TEXT,
-                user_id TEXT, user_name TEXT, user_photo TEXT, client_id TEXT
+                title TEXT,
+                price INTEGER,
+                lat REAL,
+                lng REAL,
+                description TEXT,
+                status TEXT,
+                user_id TEXT,
+                user_name TEXT,
+                user_photo TEXT,
+                client_id TEXT
             )
         ''')
         # ... (intentos de agregar columnas omitidos para brevedad, ya los tienes en Neon)
@@ -114,8 +123,8 @@ async def create_listing(listing: Listing): # <--- async
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO listings (id, title, price, lat, lng, status, user_id, user_name, user_photo) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (listing.id, listing.title, listing.price, listing.lat, listing.lng, listing.status, listing.user_id, listing.user_name, listing.user_photo)
+        "INSERT INTO listings (id, title, price, lat, lng, description, status, user_id, user_name, user_photo) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (listing.id, listing.title, listing.price, listing.lat, listing.lng, listing.description, listing.status, listing.user_id, listing.user_name, listing.user_photo)
     )
     conn.commit()
     conn.close()
