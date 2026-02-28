@@ -60,6 +60,7 @@ class Listing(BaseModel):
     lng: float
     description: Optional[str] = None
     service_time: Optional[str] = None
+    end_time: Optional[str] = None
     status: str = "AVAILABLE"
     user_id: Optional[str] = None
     user_name: Optional[str] = None
@@ -86,6 +87,7 @@ def init_db():
                 lng REAL,
                 description TEXT,
                 service_time TEXT,
+                end_time TEXT,
                 status TEXT,
                 user_id TEXT,
                 user_name TEXT,
@@ -126,8 +128,8 @@ async def create_listing(listing: Listing): # <--- async
     cursor = conn.cursor()
     # 🌟 NUEVO: Añadimos service_time a la consulta y a los valores (%s)
     cursor.execute(
-        "INSERT INTO listings (id, title, price, lat, lng, description, service_time, status, user_id, user_name, user_photo) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (listing.id, listing.title, listing.price, listing.lat, listing.lng, listing.description, listing.service_time, listing.status, listing.user_id, listing.user_name, listing.user_photo)
+        "INSERT INTO listings (id, title, price, lat, lng, description, service_time, end_time, status, user_id, user_name, user_photo) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (listing.id, listing.title, listing.price, listing.lat, listing.lng, listing.description, listing.service_time, listing.end_time, listing.status, listing.user_id, listing.user_name, listing.user_photo)
     )
     conn.commit()
     conn.close()
