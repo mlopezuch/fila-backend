@@ -70,6 +70,12 @@ class Listing(BaseModel):
 class BookRequest(BaseModel):
     client_id: str
 
+class UserProfile(BaseModel):
+    uid: str
+    full_name: str
+    phone: str
+    rut: str
+
 # --- BASE DE DATOS ---
 def get_db_connection():
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
@@ -93,6 +99,15 @@ def init_db():
                 user_name TEXT,
                 user_photo TEXT,
                 client_id TEXT
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                uid TEXT PRIMARY KEY,
+                full_name TEXT,
+                phone TEXT,
+                rut TEXT
             )
         ''')
         # ... (intentos de agregar columnas omitidos para brevedad, ya los tienes en Neon)
@@ -189,3 +204,36 @@ async def delete_listing(listing_id: str): # <--- async
     # 📢 ¡AVISAMOS A TODOS QUE UN PIN DESAPARECIÓ!
     await manager.broadcast("update")
     return {"status": "success", "message": "Eliminada"}
+
+# --- ENDPOINTS DE USUARIOS (KYC) ---
+
+@app.get("/users/{uid}")
+def get_user(uid: str):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT * FROM users WHERE uid = %s", (uid,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    if user:
+        return {"status": "success", "data": user}
+    return {"status": "error", "message": "Usuario no encontrado"}
+
+@app.post("/users")
+def save_user(profile: UserProfile):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Usamos ON CONFLICT para que si el usuario ya existe, simplemente actualice sus datos
+    cursor.execute('''
+        INSERT INTO users (uid, full_name, phone, rut) 
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (uid) DO UPDATE 
+        SET full_name = EXCLUDED.full_name, 
+            phone = EXCLUDED.phone, 
+            rut = EXCLUDED.rut
+    ''', (profile.uid, profile.full_name, profile.phone, profile.rut))
+    conn.commit()
+    conn.close()
+    
+    return {"status": "success", "message": "Perfil guardado correctamente"}
