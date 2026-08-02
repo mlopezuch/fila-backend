@@ -72,6 +72,7 @@ class BookRequest(BaseModel):
 
 class UserProfile(BaseModel):
     uid: str
+    role: str  # 'SOLICITANTE' o 'GUARDADOR'
     full_name: str
     phone: str
     rut: str
@@ -226,13 +227,14 @@ def save_user(profile: UserProfile):
     cursor = conn.cursor()
     # Usamos ON CONFLICT para que si el usuario ya existe, simplemente actualice sus datos
     cursor.execute('''
-        INSERT INTO users (uid, full_name, phone, rut) 
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO users (uid, role, full_name, phone, rut) 
+        VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (uid) DO UPDATE 
-        SET full_name = EXCLUDED.full_name, 
+        SET role = EXCLUDED.role,
+            full_name = EXCLUDED.full_name, 
             phone = EXCLUDED.phone, 
             rut = EXCLUDED.rut
-    ''', (profile.uid, profile.full_name, profile.phone, profile.rut))
+    ''', (profile.uid, profile.role, profile.full_name, profile.phone, profile.rut))
     conn.commit()
     conn.close()
     
