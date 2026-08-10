@@ -66,6 +66,7 @@ class Listing(BaseModel):
     user_name: Optional[str] = None
     user_photo: Optional[str] = None
     client_id: Optional[str] = None
+    arrival_photo: Optional[str] = None
 
 class BookRequest(BaseModel):
     client_id: str
