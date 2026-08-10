@@ -77,6 +77,10 @@ class UserProfile(BaseModel):
     phone: str
     rut: str
 
+# Creamos el modelo para recibir la imagen
+class ArrivalPhoto(BaseModel):
+    photo_base64: str
+
 # --- BASE DE DATOS ---
 def get_db_connection():
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
@@ -239,3 +243,20 @@ def save_user(profile: UserProfile):
     conn.close()
     
     return {"status": "success", "message": "Perfil guardado correctamente"}
+
+# Nuevo endpoint para actualizar la foto de llegada
+@app.put("/listings/{listing_id}/arrival")
+def update_arrival_photo(listing_id: str, data: ArrivalPhoto):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE listings 
+        SET arrival_photo = %s 
+        WHERE id = %s
+    ''', (data.photo_base64, listing_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"status": "success", "message": "Foto de llegada guardada exitosamente"}
