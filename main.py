@@ -67,6 +67,12 @@ class Listing(BaseModel):
     user_photo: Optional[str] = None
     client_id: Optional[str] = None
     arrival_photo: Optional[str] = None
+    guardador_lat: Optional[float] = None
+    guardador_lng: Optional[float] = None
+
+class GuardadorLocation(BaseModel):
+    lat: float
+    lng: float
 
 class BookRequest(BaseModel):
     client_id: str
@@ -261,3 +267,20 @@ def update_arrival_photo(listing_id: str, data: ArrivalPhoto):
     conn.close()
     
     return {"status": "success", "message": "Foto de llegada guardada exitosamente"}
+
+@app.put("/listings/{listing_id}/location")
+async def update_guardador_location(listing_id: str, loc: GuardadorLocation):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE listings 
+        SET guardador_lat = %s, guardador_lng = %s 
+        WHERE id = %s
+    ''', (loc.lat, loc.lng, listing_id))
+    conn.commit()
+    conn.close()
+    
+    # 📢 MAGIA: Emitimos un mensaje cifrado solo con las coordenadas (Sin colapsar la BD)
+    await manager.broadcast(f"loc|{listing_id}|{loc.lat}|{loc.lng}")
+    
+    return {"status": "success"}
