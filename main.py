@@ -46,8 +46,13 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # Mantenemos el tubo abierto escuchando
+            # Escuchamos lo que envían los celulares
             data = await websocket.receive_text()
+            
+            # 🌟 NUEVO: Si recibimos una petición de radar, la rebotamos a todos los conectados
+            if data.startswith("request_loc|"):
+                await manager.broadcast(data)
+                
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
