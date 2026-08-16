@@ -74,6 +74,7 @@ class Listing(BaseModel):
     arrival_photo: Optional[str] = None
     guardador_lat: Optional[float] = None
     guardador_lng: Optional[float] = None
+    guardador_last_update: Optional[str] = None
 
 class GuardadorLocation(BaseModel):
     lat: float
