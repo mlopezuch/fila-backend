@@ -310,7 +310,7 @@ async def update_guardador_location(listing_id: str, loc: GuardadorLocation):
     conn.commit()
     conn.close()
     
-    # 📢 MAGIA: Emitimos un mensaje cifrado solo con las coordenadas (Sin colapsar la BD)
-    await manager.broadcast(f"loc|{listing_id}|{loc.lat}|{loc.lng}")
+    # 📢 MAGIA: Emitimos latitud, longitud Y la fecha exacta
+    await manager.broadcast(f"loc|{listing_id}|{loc.lat}|{loc.lng}|{loc.guardador_last_update}")
     
     return {"status": "success"}
