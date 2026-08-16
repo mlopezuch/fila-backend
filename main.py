@@ -159,6 +159,23 @@ def get_listings():
     conn.close()
     return rows
 
+@app.get("/listings/{listing_id}", response_model=Listing)
+def get_single_listing(listing_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Buscamos solo la fila que el solicitante está pidiendo
+    cursor.execute("SELECT * FROM listings WHERE id = %s", (listing_id,))
+    row = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    
+    from fastapi import HTTPException
+    if row:
+        return row
+    raise HTTPException(status_code=404, detail="Fila no encontrada")
+
 @app.post("/listings")
 async def create_listing(listing: Listing): # <--- async
     listing.id = str(uuid.uuid4())
