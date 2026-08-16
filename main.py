@@ -78,6 +78,7 @@ class Listing(BaseModel):
 class GuardadorLocation(BaseModel):
     lat: float
     lng: float
+    guardador_last_update: Optional[str] = None
 
 class BookRequest(BaseModel):
     client_id: str
@@ -115,7 +116,11 @@ def init_db():
                 user_id TEXT,
                 user_name TEXT,
                 user_photo TEXT,
-                client_id TEXT
+                client_id TEXT,
+                arrival_photo TEXT,
+                guardador_lat REAL,
+                guardador_lng REAL,
+                guardador_last_update TEXT
             )
         ''')
 
@@ -277,11 +282,13 @@ def update_arrival_photo(listing_id: str, data: ArrivalPhoto):
 async def update_guardador_location(listing_id: str, loc: GuardadorLocation):
     conn = get_db_connection()
     cursor = conn.cursor()
+
     cursor.execute('''
         UPDATE listings 
-        SET guardador_lat = %s, guardador_lng = %s 
+        SET guardador_lat = %s, guardador_lng = %s, guardador_last_update = %s
         WHERE id = %s
-    ''', (loc.lat, loc.lng, listing_id))
+    ''', (loc.lat, loc.lng, loc.guardador_last_update, listing_id))
+    
     conn.commit()
     conn.close()
     
