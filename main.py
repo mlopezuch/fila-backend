@@ -90,6 +90,7 @@ class UserProfile(BaseModel):
     full_name: str
     phone: str
     rut: str
+    user_photo: Optional[str] = None
 
 # Creamos el modelo para recibir la imagen
 class ArrivalPhoto(BaseModel):
@@ -272,8 +273,9 @@ def save_user(profile: UserProfile):
         SET role = EXCLUDED.role,
             full_name = EXCLUDED.full_name, 
             phone = EXCLUDED.phone, 
-            rut = EXCLUDED.rut
-    ''', (profile.uid, profile.role, profile.full_name, profile.phone, profile.rut))
+            rut = EXCLUDED.rut,
+            user_photo = EXCLUDED.user_photo
+    ''', (profile.uid, profile.role, profile.full_name, profile.phone, profile.rut, profile.user_photo))
     conn.commit()
     conn.close()
     
