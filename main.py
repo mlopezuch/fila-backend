@@ -88,6 +88,7 @@ class UserProfile(BaseModel):
     uid: str
     role: str  # 'SOLICITANTE' o 'GUARDADOR'
     full_name: str
+    email: str
     phone: str
     rut: str
     user_photo: Optional[str] = None
@@ -130,8 +131,11 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 uid TEXT PRIMARY KEY,
                 full_name TEXT,
+                email TEXT,
                 phone TEXT,
-                rut TEXT
+                rut TEXT,
+                user_photo TEXT,
+                role TEXT
             )
         ''')
         # ... (intentos de agregar columnas omitidos para brevedad, ya los tienes en Neon)
@@ -176,8 +180,6 @@ def get_single_listing(listing_id: str):
     if row:
         return row
     raise HTTPException(status_code=404, detail="Fila no encontrada")
-
-# --- ENDPOINTS DE USUARIOS ---
 
 @app.get("/users")
 def get_users():
@@ -268,15 +270,16 @@ def save_user(profile: UserProfile):
     cursor = conn.cursor()
     # Usamos ON CONFLICT para que si el usuario ya existe, simplemente actualice sus datos
     cursor.execute('''
-        INSERT INTO users (uid, role, full_name, phone, rut) 
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO users (uid, role, full_name, email, phone, rut,  user_photo) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (uid) DO UPDATE 
         SET role = EXCLUDED.role,
             full_name = EXCLUDED.full_name, 
+            email = EXCLUDED.email,
             phone = EXCLUDED.phone, 
             rut = EXCLUDED.rut,
             user_photo = EXCLUDED.user_photo
-    ''', (profile.uid, profile.role, profile.full_name, profile.phone, profile.rut, profile.user_photo))
+    ''', (profile.uid, profile.role, profile.full_name, profile.email, profile.phone, profile.rut, profile.user_photo))
     conn.commit()
     conn.close()
     
