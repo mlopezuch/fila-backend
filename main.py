@@ -177,6 +177,34 @@ def get_single_listing(listing_id: str):
         return row
     raise HTTPException(status_code=404, detail="Fila no encontrada")
 
+# --- ENDPOINTS DE USUARIOS ---
+
+@app.get("/users")
+def get_users():
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT * FROM users")
+    users = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    if users:
+        return {"status": "success", "data": users}
+    return {"status": "error", "message": "Usuarios no encontrados"}
+
+@app.get("/users/{uid}")
+def get_user(uid: str):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT * FROM users WHERE uid = %s", (uid,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    if user:
+        return {"status": "success", "data": user}
+    return {"status": "error", "message": "Usuario no encontrado"}
+
 @app.post("/listings")
 async def create_listing(listing: Listing): # <--- async
     listing.id = str(uuid.uuid4())
@@ -234,33 +262,6 @@ async def complete_job(listing_id: str): # <--- async
     await manager.broadcast("update")
     return {"status": "success", "message": "Validado"}
 
-@app.delete("/listings/{listing_id}")
-async def delete_listing(listing_id: str): # <--- async
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM listings WHERE id = %s", (listing_id,))
-    conn.commit()
-    conn.close()
-    
-    # 📢 ¡AVISAMOS A TODOS QUE UN PIN DESAPARECIÓ!
-    await manager.broadcast("update")
-    return {"status": "success", "message": "Eliminada"}
-
-# --- ENDPOINTS DE USUARIOS (KYC) ---
-
-@app.get("/users/{uid}")
-def get_user(uid: str):
-    conn = get_db_connection()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    cursor.execute("SELECT * FROM users WHERE uid = %s", (uid,))
-    user = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    
-    if user:
-        return {"status": "success", "data": user}
-    return {"status": "error", "message": "Usuario no encontrado"}
-
 @app.post("/users")
 def save_user(profile: UserProfile):
     conn = get_db_connection()
@@ -316,3 +317,15 @@ async def update_guardador_location(listing_id: str, loc: GuardadorLocation):
     await manager.broadcast(f"loc|{listing_id}|{loc.lat}|{loc.lng}|{loc.guardador_last_update}")
     
     return {"status": "success"}
+
+@app.delete("/listings/{listing_id}")
+async def delete_listing(listing_id: str): # <--- async
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM listings WHERE id = %s", (listing_id,))
+    conn.commit()
+    conn.close()
+    
+    # 📢 ¡AVISAMOS A TODOS QUE UN PIN DESAPARECIÓ!
+    await manager.broadcast("update")
+    return {"status": "success", "message": "Eliminada"}
