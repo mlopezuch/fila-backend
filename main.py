@@ -92,6 +92,7 @@ class UserProfile(BaseModel):
     phone: str
     rut: str
     user_photo: Optional[str] = None
+    created_at: Optional[str] = None
 
 # Creamos el modelo para recibir la imagen
 class ArrivalPhoto(BaseModel):
@@ -123,7 +124,8 @@ def init_db():
                 arrival_photo TEXT,
                 guardador_lat REAL,
                 guardador_lng REAL,
-                guardador_last_update TEXT
+                guardador_last_update TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -132,10 +134,10 @@ def init_db():
                 uid TEXT PRIMARY KEY,
                 full_name TEXT,
                 email TEXT,
+                role TEXT,
                 phone TEXT,
                 rut TEXT,
-                user_photo TEXT,
-                role TEXT
+                user_photo TEXT              
             )
         ''')
         # ... (intentos de agregar columnas omitidos para brevedad, ya los tienes en Neon)
