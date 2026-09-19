@@ -230,17 +230,37 @@ async def create_listing(listing: Listing): # <--- async
 async def book_listing(listing_id: str, req: BookRequest): # <--- async
     conn = get_db_connection()
     cursor = conn.cursor()
+    
+    # 1. Validación inicial rápida
     cursor.execute("SELECT status, user_id FROM listings WHERE id = %s", (listing_id,))
     result = cursor.fetchone()
     
-    if not result: return {"status": "error", "message": "No encontrada"}
-    if result[0] != "AVAILABLE": return {"status": "error", "message": "Ya está reservado"}
-    
     from fastapi import Response
-    if result[1] == req.client_id:
-        return Response(content='{"status": "error", "message": "No puedes contratar tu propia fila"}', status_code=400, media_type="application/json")
     
-    cursor.execute("UPDATE listings SET status = 'BOOKED', client_id = %s WHERE id = %s", (req.client_id, listing_id))
+    if not result: 
+        conn.close()
+        return Response(content='{"status": "error", "message": "No encontrada"}', status_code=404, media_type="application/json")
+        
+    if result[1] == req.client_id:
+        conn.close()
+        return Response(content='{"status": "error", "message": "No puedes contratar tu propia fila"}', status_code=400, media_type="application/json")
+
+    # 2. 🌟 EL CANDADO ATÓMICO EN LA BASE DE DATOS
+    # Exigimos estrictamente que el estado sea AVAILABLE en el mismo milisegundo de la escritura
+    cursor.execute(
+        "UPDATE listings SET status = 'BOOKED', client_id = %s WHERE id = %s AND status = 'AVAILABLE'", 
+        (req.client_id, listing_id)
+    )
+    
+    # 3. Verificamos si PostgreSQL realmente actualizó la fila
+    filas_afectadas = cursor.rowcount
+    
+    if filas_afectadas == 0:
+        # 🛑 Nadie fue actualizado. Alguien más ganó la carrera y tomó la fila primero.
+        # Devolvemos un error 409 (Conflict) para que Flutter caiga en el bloque 'else'
+        conn.close()
+        return Response(content='{"status": "error", "message": "La fila ya fue tomada"}', status_code=409, media_type="application/json")
+    
     conn.commit()
     conn.close()
     
