@@ -98,6 +98,13 @@ class UserProfile(BaseModel):
 class ArrivalPhoto(BaseModel):
     photo_base64: str
 
+class ChatMessage(BaseModel):
+    id: Optional[str] = None
+    listing_id: str
+    sender_id: str
+    text: str
+    created_at: Optional[str] = None
+
 # --- BASE DE DATOS ---
 def get_db_connection():
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
@@ -138,6 +145,17 @@ def init_db():
                 phone TEXT,
                 rut TEXT,
                 user_photo TEXT              
+            )
+        ''')
+
+        # --- 🌟 NUEVO: TABLA DE MENSAJES PARA EL CHAT ---
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                listing_id TEXT,
+                sender_id TEXT,
+                text TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         # ... (intentos de agregar columnas omitidos para brevedad, ya los tienes en Neon)
