@@ -11,8 +11,18 @@ import json
 import firebase_admin
 from firebase_admin import credentials, messaging
 
-# 🌟 INICIALIZAR FIREBASE ADMIN PARA ENVIAR PUSH
-cred = credentials.Certificate("firebase_key.json")
+# 🌟 LÓGICA DE CREDENCIALES SEGURAS
+firebase_secret = os.environ.get("FIREBASE_JSON")
+
+if firebase_secret:
+    # ☁️ MODO PRODUCCIÓN: Lee la llave secreta desde la memoria del servidor
+    # Convertimos el texto plano a un diccionario de Python
+    cred_dict = json.loads(firebase_secret)
+    cred = credentials.Certificate(cred_dict)
+else:
+    # 💻 MODO LOCAL: Lee el archivo físico (el que ignoraste en GitHub)
+    cred = credentials.Certificate("firebase_key.json")
+
 firebase_admin.initialize_app(cred)
 
 app = FastAPI()
