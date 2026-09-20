@@ -7,6 +7,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+import json
+import firebase_admin
+from firebase_admin import credentials, messaging
+
+# 🌟 INICIALIZAR FIREBASE ADMIN PARA ENVIAR PUSH
+cred = credentials.Certificate("firebase_key.json")
+firebase_admin.initialize_app(cred)
 
 app = FastAPI()
 
@@ -18,39 +25,62 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- 🌟 EL NUEVO CEREBRO DE WEBSOCKETS (CON CHAT PRIVADO) ---
+# --- 🌟 EL NUEVO CEREBRO DE WEBSOCKETS CON FIREBASE ---
 class ConnectionManager:
     def __init__(self):
-        # Cambiamos de Lista a Diccionario: { "uid_del_usuario": WebSocket }
-        self.active_connections: dict[str, WebSocket] = {}
+        self.active_connections: dict[str, list[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, uid: str):
         await websocket.accept()
-        self.active_connections[uid] = websocket
+        if uid not in self.active_connections:
+            self.active_connections[uid] = []
+        self.active_connections[uid].append(websocket)
 
-    def disconnect(self, uid: str):
+    def disconnect(self, websocket: WebSocket, uid: str):
         if uid in self.active_connections:
-            del self.active_connections[uid]
+            if websocket in self.active_connections[uid]:
+                self.active_connections[uid].remove(websocket)
+            if not self.active_connections[uid]:
+                del self.active_connections[uid]
 
     async def send_personal_message(self, message: str, uid: str):
-        # Dispara el mensaje SOLO a la pantalla del usuario receptor
         if uid in self.active_connections:
-            try:
-                await self.active_connections[uid].send_text(message)
-            except Exception:
-                self.disconnect(uid)
+            for connection in self.active_connections[uid]:
+                try:
+                    await connection.send_text(message)
+                except Exception:
+                    pass
 
     async def broadcast(self, message: str):
-        # Mantenemos este para actualizar el mapa general
-        for uid, connection in list(self.active_connections.items()):
-            try:
-                await connection.send_text(message)
-            except Exception:
-                self.disconnect(uid)
+        for uid, connections in list(self.active_connections.items()):
+            for connection in connections:
+                try:
+                    await connection.send_text(message)
+                except Exception:
+                    pass
 
 manager = ConnectionManager()
 
-# 🌟 NUEVO: Ahora la ruta exige el UID del usuario (ej: /ws/UID_123)
+def enviar_notificacion_push(fcm_token: str, titulo: str, cuerpo: str, listing_id: str, sender_id: str):
+    if not fcm_token: return
+    try:
+        mensaje = messaging.Message(
+            notification=messaging.Notification(
+                title=titulo,
+                body=cuerpo
+            ),
+            data={
+                # Pasamos estos datos invisibles para que Flutter sepa qué chat abrir al tocar la notificación
+                "type": "chat",
+                "listing_id": listing_id,
+                "sender_id": sender_id
+            },
+            token=fcm_token,
+        )
+        messaging.send(mensaje)
+    except Exception as e:
+        print(f"Error enviando Push FCM: {e}")
+
 @app.websocket("/ws/{uid}")
 async def websocket_endpoint(websocket: WebSocket, uid: str):
     await manager.connect(websocket, uid)
@@ -58,13 +88,11 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
         while True:
             data = await websocket.receive_text()
             
-            # Filtramos pings y radares del mapa
             if data == "ping":
                 continue
             elif data.startswith("request_loc|"):
                 await manager.broadcast(data)
             else:
-                # 🌟 LÓGICA DEL CHAT: Si llega un JSON, lo procesamos
                 try:
                     payload = json.loads(data)
                     if payload.get("type") == "chat":
@@ -73,30 +101,44 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                         text = payload["text"]
                         msg_id = str(uuid.uuid4())
                         
-                        # 1. Guardar en PostgreSQL (Fuente de verdad)
+                        # 1. Guardar en BD
                         conn = get_db_connection()
-                        cursor = conn.cursor()
+                        cursor = conn.cursor(cursor_factory=RealDictCursor)
                         cursor.execute(
                             "INSERT INTO messages (id, listing_id, sender_id, text) VALUES (%s, %s, %s, %s)",
                             (msg_id, listing_id, uid, text)
                         )
                         conn.commit()
+
+                        # 2. Enviar por WebSocket SI el receptor tiene la app abierta
+                        if receiver_id in manager.active_connections and manager.active_connections[receiver_id]:
+                            mensaje_out = json.dumps({
+                                "type": "chat",
+                                "listing_id": listing_id,
+                                "sender_id": uid,
+                                "text": text
+                            })
+                            await manager.send_personal_message(mensaje_out, receiver_id)
+                        else:
+                            # 3. 🌟 EL USUARIO TIENE LA APP CERRADA: BUSCAMOS SU TOKEN Y DISPARAMOS PUSH
+                            cursor.execute("SELECT fcm_token FROM users WHERE uid = %s", (receiver_id,))
+                            user_data = cursor.fetchone()
+                            if user_data and user_data['fcm_token']:
+                                enviar_notificacion_push(
+                                    fcm_token=user_data['fcm_token'],
+                                    titulo="Nuevo mensaje de FilaFácil",
+                                    cuerpo=text,
+                                    listing_id=listing_id,
+                                    sender_id=uid
+                                )
+                        
                         cursor.close()
                         conn.close()
-                        
-                        # 2. Rebotar el mensaje en vivo al receptor
-                        mensaje_out = json.dumps({
-                            "type": "chat",
-                            "listing_id": listing_id,
-                            "sender_id": uid,
-                            "text": text
-                        })
-                        await manager.send_personal_message(mensaje_out, receiver_id)
                 except Exception as e:
-                    print(f"Error procesando mensaje socket: {e}")
+                    print(f"Error procesando chat: {e}")
                 
     except WebSocketDisconnect:
-        manager.disconnect(uid)
+        manager.disconnect(websocket, uid)
 
 # --- MODELOS ---
 class Listing(BaseModel):
@@ -147,6 +189,10 @@ class ChatMessage(BaseModel):
     text: str
     created_at: Optional[str] = None
 
+# --- NUEVO MODELO PARA EL TOKEN ---
+class FCMToken(BaseModel):
+    token: str
+
 # --- BASE DE DATOS ---
 def get_db_connection():
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
@@ -186,7 +232,8 @@ def init_db():
                 role TEXT,
                 phone TEXT,
                 rut TEXT,
-                user_photo TEXT              
+                user_photo TEXT,
+                fcm_token TEXT              
             )
         ''')
 
@@ -426,6 +473,17 @@ async def update_guardador_location(listing_id: str, loc: GuardadorLocation):
     # 📢 MAGIA: Emitimos latitud, longitud Y la fecha exacta
     await manager.broadcast(f"loc|{listing_id}|{loc.lat}|{loc.lng}|{loc.guardador_last_update}")
     
+    return {"status": "success"}
+
+@app.put("/users/{uid}/fcm-token")
+def update_fcm_token(uid: str, data: FCMToken):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE users SET fcm_token = %s WHERE uid = %s
+    ''', (data.token, uid))
+    conn.commit()
+    conn.close()
     return {"status": "success"}
 
 @app.delete("/listings/{listing_id}")
