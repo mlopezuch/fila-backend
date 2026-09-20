@@ -2,6 +2,7 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import uuid
+import json # 🌟 NUEVO IMPORT
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -17,44 +18,85 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- 🌟 EL MEGÁFONO DE WEBSOCKETS ---
+# --- 🌟 EL NUEVO CEREBRO DE WEBSOCKETS (CON CHAT PRIVADO) ---
 class ConnectionManager:
     def __init__(self):
-        # Aquí guardamos a todos los usuarios que tienen la app abierta
-        self.active_connections: List[WebSocket] = []
+        # Cambiamos de Lista a Diccionario: { "uid_del_usuario": WebSocket }
+        self.active_connections: dict[str, WebSocket] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, uid: str):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        self.active_connections[uid] = websocket
 
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+    def disconnect(self, uid: str):
+        if uid in self.active_connections:
+            del self.active_connections[uid]
+
+    async def send_personal_message(self, message: str, uid: str):
+        # Dispara el mensaje SOLO a la pantalla del usuario receptor
+        if uid in self.active_connections:
+            try:
+                await self.active_connections[uid].send_text(message)
+            except Exception:
+                self.disconnect(uid)
 
     async def broadcast(self, message: str):
-        # Le enviamos el mensaje a todos los conectados
-        for connection in self.active_connections:
+        # Mantenemos este para actualizar el mapa general
+        for uid, connection in list(self.active_connections.items()):
             try:
                 await connection.send_text(message)
             except Exception:
-                pass
+                self.disconnect(uid)
 
 manager = ConnectionManager()
 
-# Endpoint al que se conecta el celular al abrir el mapa
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+# 🌟 NUEVO: Ahora la ruta exige el UID del usuario (ej: /ws/UID_123)
+@app.websocket("/ws/{uid}")
+async def websocket_endpoint(websocket: WebSocket, uid: str):
+    await manager.connect(websocket, uid)
     try:
         while True:
-            # Escuchamos lo que envían los celulares
             data = await websocket.receive_text()
             
-            # 🌟 NUEVO: Si recibimos una petición de radar, la rebotamos a todos los conectados
-            if data.startswith("request_loc|"):
+            # Filtramos pings y radares del mapa
+            if data == "ping":
+                continue
+            elif data.startswith("request_loc|"):
                 await manager.broadcast(data)
+            else:
+                # 🌟 LÓGICA DEL CHAT: Si llega un JSON, lo procesamos
+                try:
+                    payload = json.loads(data)
+                    if payload.get("type") == "chat":
+                        listing_id = payload["listing_id"]
+                        receiver_id = payload["receiver_id"]
+                        text = payload["text"]
+                        msg_id = str(uuid.uuid4())
+                        
+                        # 1. Guardar en PostgreSQL (Fuente de verdad)
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "INSERT INTO messages (id, listing_id, sender_id, text) VALUES (%s, %s, %s, %s)",
+                            (msg_id, listing_id, uid, text)
+                        )
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                        
+                        # 2. Rebotar el mensaje en vivo al receptor
+                        mensaje_out = json.dumps({
+                            "type": "chat",
+                            "listing_id": listing_id,
+                            "sender_id": uid,
+                            "text": text
+                        })
+                        await manager.send_personal_message(mensaje_out, receiver_id)
+                except Exception as e:
+                    print(f"Error procesando mensaje socket: {e}")
                 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        manager.disconnect(uid)
 
 # --- MODELOS ---
 class Listing(BaseModel):
@@ -226,6 +268,31 @@ def get_user(uid: str):
     if user:
         return {"status": "success", "data": user}
     return {"status": "error", "message": "Usuario no encontrado"}
+
+# --- 🌟 NUEVO: DESCARGAR HISTORIAL DE CHAT ---
+@app.get("/chat/{listing_id}")
+def get_chat_history(listing_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Ordenamos del más antiguo al más nuevo (ASC) para dibujar el chat correctamente
+    cursor.execute('''
+        SELECT id, listing_id, sender_id, text, created_at 
+        FROM messages 
+        WHERE listing_id = %s 
+        ORDER BY created_at ASC
+    ''', (listing_id,))
+    
+    mensajes = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    # Convertimos las fechas nativas de SQL a texto ISO para evitar errores en Flutter
+    for msg in mensajes:
+        if msg['created_at']:
+            msg['created_at'] = msg['created_at'].isoformat()
+            
+    return {"status": "success", "data": mensajes}
 
 @app.post("/listings")
 async def create_listing(listing: Listing): # <--- async
