@@ -79,8 +79,23 @@ def enviar_notificacion_push(fcm_token: str, titulo: str, cuerpo: str, listing_i
                 title=titulo,
                 body=cuerpo
             ),
+            # --- 🌟 MAGIA ANDROID: Agrupación y Sobrescritura ---
+            android=messaging.AndroidConfig(
+                notification=messaging.AndroidNotification(
+                    # El 'tag' hace que el nuevo mensaje reemplace al anterior de este mismo chat
+                    tag=listing_id
+                )
+            ),
+            # --- 🌟 MAGIA iOS: Hilos de conversación ---
+            apns=messaging.APNSConfig(
+                payload=messaging.APNSPayload(
+                    aps=messaging.Aps(
+                        # thread_id agrupa los mensajes de la misma fila en el ecosistema Apple
+                        thread_id=listing_id 
+                    )
+                )
+            ),
             data={
-                # Pasamos estos datos invisibles para que Flutter sepa qué chat abrir al tocar la notificación
                 "type": "chat",
                 "listing_id": listing_id,
                 "sender_id": sender_id
