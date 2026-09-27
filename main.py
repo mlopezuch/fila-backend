@@ -202,6 +202,7 @@ class UserProfile(BaseModel):
     rut: str
     user_photo: Optional[str] = None
     created_at: Optional[str] = None
+    fcm_token: Optional[str] = None
 
 # Creamos el modelo para recibir la imagen
 class ArrivalPhoto(BaseModel):
@@ -217,6 +218,10 @@ class ChatMessage(BaseModel):
 # --- NUEVO MODELO PARA EL TOKEN ---
 class FCMToken(BaseModel):
     token: str
+
+class PaymentConfirmation(BaseModel):
+    transaction_id: str
+    status: str
 
 # --- BASE DE DATOS ---
 def get_db_connection():
@@ -403,12 +408,11 @@ async def book_listing(listing_id: str, req: BookRequest): # <--- async
         return Response(content='{"status": "error", "message": "No puedes contratar tu propia fila"}', status_code=400, media_type="application/json")
 
     # 2. 🌟 EL CANDADO ATÓMICO EN LA BASE DE DATOS
-    # Exigimos estrictamente que el estado sea AVAILABLE en el mismo milisegundo de la escritura
+    # Ahora pasamos el estado a PENDING_PAYMENT para retener al guardador
     cursor.execute(
-        "UPDATE listings SET status = 'BOOKED', client_id = %s WHERE id = %s AND status = 'AVAILABLE'", 
+        "UPDATE listings SET status = 'PENDING_PAYMENT', client_id = %s WHERE id = %s AND status = 'AVAILABLE'", 
         (req.client_id, listing_id)
     )
-    
     # 3. Verificamos si PostgreSQL realmente actualizó la fila
     filas_afectadas = cursor.rowcount
     
@@ -421,9 +425,9 @@ async def book_listing(listing_id: str, req: BookRequest): # <--- async
     conn.commit()
     conn.close()
     
-    # 📢 ¡AVISAMOS A TODOS QUE EL PIN DEBE CAMBIAR DE COLOR!
+    # 📢 ¡AVISAMOS A TODOS QUE LA FILA ESTÁ ESPERANDO PAGO!
     await manager.broadcast("update")
-    return {"status": "success", "message": "Contratado"}
+    return {"status": "success", "message": "Esperando pago del solicitante"}
 
 @app.post("/complete/{listing_id}")
 async def complete_job(listing_id: str): # <--- async
@@ -463,6 +467,34 @@ def save_user(profile: UserProfile):
     conn.close()
     
     return {"status": "success", "message": "Perfil guardado correctamente"}
+
+# --- 🌟 NUEVO: CONFIRMACIÓN DEL PAGO RETENIDO (ESCROW) ---
+@app.post("/listings/{listing_id}/confirm-payment")
+async def confirm_payment(listing_id: str, data: PaymentConfirmation):
+    # Validamos que el pago simulado indique que el dinero fue retenido
+    if data.status != "HELD_IN_ESCROW":
+        return {"status": "error", "message": "Pago fallido o no retenido"}
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Movemos el estado a BOOKED para que el guardador comience a transmitir GPS
+    cursor.execute('''
+        UPDATE listings 
+        SET status = 'BOOKED'
+        WHERE id = %s AND status = 'PENDING_PAYMENT'
+    ''', (listing_id,))
+    
+    cambios = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    if cambios > 0:
+        # 🌟 Le avisamos al mapa que refresque todo (el guardador verá que ya puede caminar)
+        await manager.broadcast("update")
+        return {"status": "success", "message": "Pago asegurado, fila en curso"}
+    else:
+        return {"status": "error", "message": "No se pudo confirmar el pago"}
 
 # Nuevo endpoint para actualizar la foto de llegada
 @app.put("/listings/{listing_id}/arrival")
