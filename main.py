@@ -125,7 +125,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                         receiver_id = payload["receiver_id"]
                         text = payload["text"]
                         msg_id = str(uuid.uuid4())
-                        
+                    
                         # 1. Guardar en BD
                         conn = get_db_connection()
                         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -135,7 +135,9 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                         )
                         conn.commit()
 
-                        # 2. Enviar por WebSocket SI el receptor tiene la app abierta
+                        # 2. Intentar enviar por WebSocket primero
+                        enviado_por_socket = False
+                        
                         if receiver_id in manager.active_connections and manager.active_connections[receiver_id]:
                             mensaje_out = json.dumps({
                                 "type": "chat",
@@ -143,9 +145,18 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                                 "sender_id": uid,
                                 "text": text
                             })
-                            await manager.send_personal_message(mensaje_out, receiver_id)
-                        else:
-                            # 3. 🌟 EL USUARIO TIENE LA APP CERRADA: BUSCAMOS SU TOKEN Y DISPARAMOS PUSH
+                            
+                            # Iteramos sobre una copia de la lista para poder eliminar conexiones muertas
+                            for connection in list(manager.active_connections[receiver_id]):
+                                try:
+                                    await connection.send_text(mensaje_out)
+                                    enviado_por_socket = True
+                                except Exception:
+                                    # El socket estaba muerto (Ghost Connection por cierre violento)
+                                    manager.disconnect(connection, receiver_id)
+
+                        # 3. 🌟 SI NO SE PUDO ENVIAR POR SOCKET, OBLIGAMOS A USAR PUSH FCM
+                        if not enviado_por_socket:
                             cursor.execute("SELECT fcm_token FROM users WHERE uid = %s", (receiver_id,))
                             user_data = cursor.fetchone()
                             if user_data and user_data['fcm_token']:
