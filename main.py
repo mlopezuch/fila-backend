@@ -145,6 +145,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                         # 2. Enviar siempre por WebSocket para tiempo real en pantalla
                         if receiver_id in manager.active_connections:
                             mensaje_out = json.dumps({
+                                "id": msg_id, # 🌟 NUEVO: INYECTAMOS EL ID ÚNICO
                                 "type": "chat",
                                 "listing_id": listing_id,
                                 "sender_id": uid,
