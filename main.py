@@ -118,6 +118,10 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
             
             if data == "ping":
                 continue
+            # --- 🌟 NUEVO: EL BOTÓN DE PÁNICO DE FLUTTER ---
+            elif data == "offline":
+                manager.disconnect(websocket, uid)
+                continue
             elif data.startswith("request_loc|"):
                 await manager.broadcast(data)
             else:
@@ -138,38 +142,33 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                         )
                         conn.commit()
 
-                        # 2. Intentar enviar por WebSocket primero
-                        enviado_por_socket = False
-                        
-                        if receiver_id in manager.active_connections and manager.active_connections[receiver_id]:
+                        # 2. Enviar siempre por WebSocket para tiempo real en pantalla
+                        if receiver_id in manager.active_connections:
                             mensaje_out = json.dumps({
                                 "type": "chat",
                                 "listing_id": listing_id,
                                 "sender_id": uid,
                                 "text": text
                             })
-                            
-                            # Iteramos sobre una copia de la lista para poder eliminar conexiones muertas
                             for connection in list(manager.active_connections[receiver_id]):
                                 try:
                                     await connection.send_text(mensaje_out)
-                                    enviado_por_socket = True
                                 except Exception:
-                                    # El socket estaba muerto (Ghost Connection por cierre violento)
                                     manager.disconnect(connection, receiver_id)
 
-                        # 3. 🌟 SI NO SE PUDO ENVIAR POR SOCKET, OBLIGAMOS A USAR PUSH FCM
-                        if not enviado_por_socket:
-                            cursor.execute("SELECT fcm_token FROM users WHERE uid = %s", (receiver_id,))
-                            user_data = cursor.fetchone()
-                            if user_data and user_data['fcm_token']:
-                                enviar_notificacion_push(
-                                    fcm_token=user_data['fcm_token'],
-                                    titulo="Nuevo mensaje de FilaFácil",
-                                    cuerpo=text,
-                                    listing_id=listing_id,
-                                    sender_id=uid
-                                )
+                        # 3. 🌟 LA SOLUCIÓN DEFINITIVA: SIEMPRE DISPARAR FCM 🌟
+                        # Si la app está abierta, Android oculta la notificación push automáticamente.
+                        # Si está cerrada o minimizada, la muestra al instante. 0 latencia.
+                        cursor.execute("SELECT fcm_token FROM users WHERE uid = %s", (receiver_id,))
+                        user_data = cursor.fetchone()
+                        if user_data and user_data['fcm_token']:
+                            enviar_notificacion_push(
+                                fcm_token=user_data['fcm_token'],
+                                titulo="Nuevo mensaje de FilaFácil",
+                                cuerpo=text,
+                                listing_id=listing_id,
+                                sender_id=uid
+                            )
                         
                         cursor.close()
                         conn.close()
