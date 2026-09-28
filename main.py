@@ -81,6 +81,7 @@ def enviar_notificacion_push(fcm_token: str, titulo: str, cuerpo: str, listing_i
             ),
             # --- 🌟 MAGIA ANDROID: Agrupación y Sobrescritura ---
             android=messaging.AndroidConfig(
+                priority="high",
                 notification=messaging.AndroidNotification(
                     # El 'tag' hace que el nuevo mensaje reemplace al anterior de este mismo chat
                     tag=listing_id
@@ -88,9 +89,11 @@ def enviar_notificacion_push(fcm_token: str, titulo: str, cuerpo: str, listing_i
             ),
             # --- 🌟 MAGIA iOS: Hilos de conversación ---
             apns=messaging.APNSConfig(
+                headers={
+                    "apns-priority": "10"
+                },
                 payload=messaging.APNSPayload(
                     aps=messaging.Aps(
-                        # thread_id agrupa los mensajes de la misma fila en el ecosistema Apple
                         thread_id=listing_id 
                     )
                 )
