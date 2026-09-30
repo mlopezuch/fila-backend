@@ -84,7 +84,8 @@ def enviar_notificacion_push(fcm_token: str, titulo: str, cuerpo: str, listing_i
                 priority="high",
                 notification=messaging.AndroidNotification(
                     # El 'tag' hace que el nuevo mensaje reemplace al anterior de este mismo chat
-                    tag=listing_id
+                    tag=listing_id,
+                    channel_id="chat_high_importance"
                 )
             ),
             # --- 🌟 MAGIA iOS: Hilos de conversación ---
