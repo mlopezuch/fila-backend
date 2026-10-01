@@ -1,3 +1,4 @@
+import contextlib
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -171,6 +172,13 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                                 listing_id=listing_id,
                                 sender_id=uid
                             )
+
+                        notif_id = str(uuid.uuid4())
+                        cursor.execute("""
+                            INSERT INTO notifications (id, user_id, title, body, type, reference_id)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (notif_id, receiver_id, "Nuevo mensaje de FilaFácil", text, "chat", listing_id))
+                        conn.commit()
                         
                         cursor.close()
                         conn.close()
@@ -292,6 +300,20 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # --- 🌟 NUEVO: TABLA DE NOTIFICACIONES ---
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                type TEXT,
+                reference_id TEXT,
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         # ... (intentos de agregar columnas omitidos para brevedad, ya los tienes en Neon)
         conn.commit()
         cursor.close()
@@ -385,6 +407,29 @@ def get_chat_history(listing_id: str):
             msg['created_at'] = msg['created_at'].isoformat()
             
     return {"status": "success", "data": mensajes}
+
+@app.get("/users/{uid}/notifications")
+def get_user_notifications(uid: str):
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    # Traemos las notificaciones ordenadas por fecha
+    cursor.execute("""
+        SELECT * FROM notifications 
+        WHERE user_id = %s 
+        ORDER BY created_at DESC
+    """, (uid,))
+    
+    notificaciones = cursor.fetchall()
+    
+    # Formatear fechas para JSON
+    for notif in notificaciones:
+        if notif['created_at']:
+            notif['created_at'] = notif['created_at'].isoformat()
+            
+    cursor.close()
+    conn.close()
+    return {"status": "success", "data": notificaciones}
 
 @app.post("/listings")
 async def create_listing(listing: Listing): # <--- async
