@@ -85,7 +85,6 @@ def enviar_notificacion_push(fcm_token: str, titulo: str, cuerpo: str, listing_i
                 notification=messaging.AndroidNotification(
                     # El 'tag' hace que el nuevo mensaje reemplace al anterior de este mismo chat
                     tag=listing_id,
-                    icon="icono_fila_activa",
                     channel_id="chat_high_importance"
                 )
             ),
