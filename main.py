@@ -138,6 +138,16 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                         # 1. Guardar en BD
                         conn = get_db_connection()
                         cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+                        # --- 🌟 CANDADO ANTI-ZOMBIES: Bloquea mensajes en filas terminadas ---
+                        cursor.execute("SELECT status FROM listings WHERE id = %s", (listing_id,))
+                        estado_fila = cursor.fetchone()
+                        
+                        if not estado_fila or estado_fila['status'] == 'COMPLETED':
+                            cursor.close()
+                            conn.close()
+                            continue # 🛑 Se aborta el guardado y no se envían notificaciones
+
                         cursor.execute(
                             "INSERT INTO messages (id, listing_id, sender_id, text) VALUES (%s, %s, %s, %s)",
                             (msg_id, listing_id, uid, text)
@@ -167,7 +177,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                         if user_data and user_data['fcm_token']:
                             enviar_notificacion_push(
                                 fcm_token=user_data['fcm_token'],
-                                titulo="Nuevo mensaje de FilaFácil",
+                                titulo="Nuevo mensaje",
                                 cuerpo=text,
                                 listing_id=listing_id,
                                 sender_id=uid
@@ -177,7 +187,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
                         cursor.execute("""
                             INSERT INTO notifications (id, user_id, title, body, type, reference_id)
                             VALUES (%s, %s, %s, %s, %s, %s)
-                        """, (notif_id, receiver_id, "Nuevo mensaje de FilaFácil", text, "chat", listing_id))
+                        """, (notif_id, receiver_id, "Nuevo mensaje", text, "chat", listing_id))
                         conn.commit()
                         
                         cursor.close()
