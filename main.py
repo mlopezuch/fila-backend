@@ -11,6 +11,7 @@ from typing import List, Optional
 import json
 import firebase_admin
 from firebase_admin import credentials, messaging
+from datetime import datetime, timezone
 
 # 🌟 LÓGICA DE CREDENCIALES SEGURAS
 firebase_secret = os.environ.get("FIREBASE_JSON")
@@ -156,12 +157,14 @@ async def websocket_endpoint(websocket: WebSocket, uid: str):
 
                         # 2. Enviar siempre por WebSocket para tiempo real en pantalla
                         if receiver_id in manager.active_connections:
+                            fecha_utc = datetime.now(timezone.utc).isoformat()
                             mensaje_out = json.dumps({
                                 "id": msg_id, # 🌟 NUEVO: INYECTAMOS EL ID ÚNICO
                                 "type": "chat",
                                 "listing_id": listing_id,
                                 "sender_id": uid,
-                                "text": text
+                                "text": text,
+                                "created_at": fecha_utc
                             })
                             for connection in list(manager.active_connections[receiver_id]):
                                 try:
@@ -414,7 +417,7 @@ def get_chat_history(listing_id: str):
     # Convertimos las fechas nativas de SQL a texto ISO para evitar errores en Flutter
     for msg in mensajes:
         if msg['created_at']:
-            msg['created_at'] = msg['created_at'].isoformat()
+            msg['created_at'] = msg['created_at'].isoformat() + "Z"
             
     return {"status": "success", "data": mensajes}
 
@@ -435,7 +438,7 @@ def get_user_notifications(uid: str):
     # Formatear fechas para JSON
     for notif in notificaciones:
         if notif['created_at']:
-            notif['created_at'] = notif['created_at'].isoformat()
+            notif['created_at'] = notif['created_at'].isoformat() + "Z"
             
     cursor.close()
     conn.close()
